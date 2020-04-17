@@ -1,0 +1,4 @@
+# Ignoring System and IDE dependent files
+venv/
+.idea/
+__pycache__/

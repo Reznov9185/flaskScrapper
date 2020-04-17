@@ -34,7 +34,7 @@ fake-factory==9999.9.9
 Faker==0.8.18
 flake8==3.7.7
 flake8-quotes==1.0.0
-Flask==0.12.4
+Flask==1.0
 Flask-Cors==3.0.3
 flask-swagger==0.2.12
 future==0.17.1

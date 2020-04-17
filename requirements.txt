@@ -96,6 +96,6 @@ urllib3==1.24.2
 virtualenv==16.4.3
 warrant-ext==0.6.1.1
 websocket-client==0.55.0
-Werkzeug==0.14.1
+Werkzeug==0.15.3
 wrapt==1.11.1
 xmltodict==0.12.0

@@ -81,7 +81,7 @@ python-jose==2.0.2
 python-jose-ext==1.3.2.4
 pytz==2018.9
 pytzdata==2018.9
-PyYAML==3.13
+PyYAML==5.1
 requests==2.21.0
 requests-aws4auth==0.9
 responses==0.10.5

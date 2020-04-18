@@ -45,7 +45,6 @@ celery = make_celery(app)
 def add_together(a, b):
     return a + b
 
-
 @app.route('/')
 def index():
   return print_index_table()
@@ -54,10 +53,10 @@ def index():
 def db_test():
     epoch_time = int(time.time())
     init_db()
-    u = User('admin' + str(epoch_time), 'admin' + str(epoch_time) + '@localhost')
-    db_session.add(u)
+    entry = Video('ABCDEFG' + str(epoch_time), 'ChannelXYZ' + str(epoch_time), 'Title of my video!')
+    db_session.add(entry)
     db_session.commit()
-    results = u.serialize()
+    results = entry.serialize()
 
     return flask.jsonify(results)
 

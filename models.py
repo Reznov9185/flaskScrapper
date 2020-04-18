@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Integer, String
+import datetime
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.inspection import inspect
 
@@ -27,3 +29,69 @@ class User(Base):
     def serialize(self):
         d = Serializer.serialize(self)
         return d
+
+class Video(Base):
+    __tablename__ = 'videos'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    youtube_id = Column(String(250), unique=True)
+    channel_id = Column(String(250), unique=True)
+    title = Column(String(250))
+
+    def __init__(self, youtube_id=None, channel_id=None, title=None):
+        self.youtube_id = youtube_id
+        self.channel_id = channel_id
+        self.title = title
+
+    def __repr__(self):
+        return '<Video %r>' % (self.youtube_id)
+
+    def serialize(self):
+        d = Serializer.serialize(self)
+        return d
+
+
+class Tag(Base):
+    __tablename__ = 'tags'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    video_id = Column(String(250), primary_key=True)
+    title = Column(String(250))
+    # video = relationship("Video", foreign_keys=Video.id)
+
+    def __init__(self, title=None, video_id=None):
+        self.title = title
+        self.video_id = video_id
+
+    def __repr__(self):
+        return '<Tag %r>' % (self.title)
+
+    def serialize(self):
+        d = Serializer.serialize(self)
+        return d
+
+
+class Statistic(Base):
+    __tablename__ = 'statistics'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    commentCount = Column(Integer)
+    dislikeCount = Column(Integer)
+    favoriteCount = Column(Integer)
+    likeCount = Column(Integer)
+    viewCount = Column(Integer)
+
+    def __init__(self, commentCount=None, dislikeCount=None, favoriteCount=None, likeCount=None, viewCount=None):
+        self.commentCount = commentCount
+        self.dislikeCount = dislikeCount
+        self.favoriteCount = favoriteCount
+        self.likeCount = likeCount
+        self.viewCount = viewCount
+
+    def __repr__(self):
+        return '<Statistic %r>' % (self.id)
+
+    def serialize(self):
+        d = Serializer.serialize(self)
+        return d
+

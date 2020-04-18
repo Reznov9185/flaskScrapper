@@ -4,6 +4,7 @@ import os
 import flask
 import requests
 import time
+import redis
 
 import google.oauth2.credentials
 import google_auth_oauthlib.flow
@@ -11,6 +12,7 @@ import googleapiclient.discovery
 
 from database import *
 from models import *
+from tasks import *
 
 # This variable specifies the name of a file that contains the OAuth 2.0
 # information for this application, including its client_id and client_secret.
@@ -33,6 +35,16 @@ app = flask.Flask(__name__)
 # key. See https://flask.palletsprojects.com/quickstart/#sessions.
 app.secret_key = 'REPLACE ME - this value is here as a placeholder.'
 
+app.config.update(
+    CELERY_BROKER_URL='redis://localhost:6379',
+    CELERY_RESULT_BACKEND='redis://localhost:6379'
+)
+celery = make_celery(app)
+
+@celery.task()
+def add_together(a, b):
+    return a + b
+
 
 @app.route('/')
 def index():
@@ -48,6 +60,13 @@ def db_test():
     results = u.serialize()
 
     return flask.jsonify(results)
+
+@app.route('/celery_test')
+def celery_test():
+    result = add_together.delay(23, 42)
+    test = result.wait()
+    print(test)
+    return 'Oka wait on console!'
 
 @app.route('/test')
 def test_api_request():

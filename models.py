@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, ARRAY, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.inspection import inspect
@@ -30,6 +30,33 @@ class User(Base):
         d = Serializer.serialize(self)
         return d
 
+class Cred(Base):
+    __tablename__ = 'creds'
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    token = Column(String(250))
+    refresh_token = Column(String(250))
+    token_uri = Column(String(250))
+    client_id = Column(String(250))
+    client_secret = Column(String(250))
+    scopes = Column(String(250))
+
+    def __init__(self, token=None, refresh_token=None, token_uri=None,
+                 client_id=None, client_secret=None, scopes=None):
+        self.token = token
+        self.refresh_token = refresh_token
+        self.token_uri = token_uri
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.scopes = scopes
+
+    def __repr__(self):
+        return '<Cred %r>' % (self.id)
+
+    def serialize(self):
+        d = Serializer.serialize(self)
+        return d
+
 class Video(Base):
     __tablename__ = 'videos'
     id = Column(Integer, primary_key=True)
@@ -44,7 +71,7 @@ class Video(Base):
         self.title = title
 
     def __repr__(self):
-        return '<Video %r>' % (self.youtube_id)
+        return '<Video %r>' % self.youtube_id
 
     def serialize(self):
         d = Serializer.serialize(self)

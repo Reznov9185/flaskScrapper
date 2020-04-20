@@ -52,75 +52,103 @@ def add_together(a, b):
 @celery.task()
 def connect_youtube():
     init_db()
-    credential = Cred.query.order_by(-Cred.id).first()
-    credential = credential.serialize()
-    if credential:
-        # Load credentials from the database
-        credentials = google.oauth2.credentials.Credentials(
-            credential["token"],
-            refresh_token=credential["refresh_token"],
-            token_uri=credential["token_uri"],
-            client_id=credential["client_id"],
-            client_secret=credential["client_secret"],
-            scopes=credential["scopes"]
-        )
+    try:
+        credential = Cred.query.order_by(-Cred.id).first()
+        credential = credential.serialize()
+        if credential:
+            # Load credentials from the database
+            credentials = google.oauth2.credentials.Credentials(
+                credential["token"],
+                refresh_token=credential["refresh_token"],
+                token_uri=credential["token_uri"],
+                client_id=credential["client_id"],
+                client_secret=credential["client_secret"],
+                scopes=credential["scopes"]
+            )
 
-        youtube = googleapiclient.discovery.build(
-            API_SERVICE_NAME, API_VERSION, credentials=credentials)
+            youtube = googleapiclient.discovery.build(
+                API_SERVICE_NAME, API_VERSION, credentials=credentials)
 
-        return youtube
-    else:
+            return youtube
+        else:
+            return None
+    except:
         return None
 
 
 @celery.task()
-def scrap_channel_videos():
+def scrap_channel_videos(page_token=None):
+    # For scraping and storing videos for the authorized channel
     with app.app_context():
         youtube = connect_youtube()
+        if youtube is None:
+            return None
         results = youtube.channels().list(mine=True, part='contentDetails').execute()
         # For a single channel now...
         uploads_playlist_id = \
             results['items'][0]['contentDetails']['relatedPlaylists']['uploads']
         results = youtube.playlistItems() \
-            .list(playlistId=uploads_playlist_id, part='contentDetails') \
+            .list(playlistId=uploads_playlist_id, part='contentDetails',
+                  pageToken=page_token) \
             .execute()
         videos = results['items']
         for video_item in videos:
             video_id = video_item['contentDetails']['videoId']
             already_stored = Video.query.filter(Video.youtube_id == video_id).all()
-            if already_stored is None:
+            if len(already_stored) == 0:
+                # For storing video_id from youtube
                 entry = Video(youtube_id=video_id)
                 db_session.add(entry)
                 db_session.commit()
-        # if 'nextPageToken' in results:
-        #     print('############\n')
-        #     print(results['nextPageToken'])
-        #     print('############\n')
-        #     scrap_channel_videos.delay()
+        if 'nextPageToken' in results:
+            scrap_channel_videos.delay(results['nextPageToken'])
 
-        return videos
+        return 'Channel Video Ids are now fetched!'
+
 
 @celery.task()
 def scrap_video_data():
+    # For scraping and storing video data like title, tags and stats
     init_db()
     with app.app_context():
         youtube = connect_youtube()
+        if youtube is None:
+            return None
         for video in Video.query.all():
             data = youtube.videos().list(id=video.youtube_id,
                                          part='statistics, snippet').execute()
-            video_data = data['items']
-            if len(video_data) > 0:
-                video.title = video_data[0]['snippet']['title']
-                video.channel_id = video_data[0]['snippet']['channelId']
-                tags = video_data[0]['snippet']['tags']
-                # return tags
-                if len(tags) > 0:
-                    for tag in tags:
-                        tag_obj = Tag(title=tag, video_id=video.id)
-                        db_session.add(tag_obj)
+            if 'items' in data:
+                video_data = data['items']
+                if len(video_data) > 0:
+                    # Fetching Video Titles & ChannelId
+                    if 'snippet' in video_data[0]:
+                        video.title = video_data[0]['snippet']['title']
+                        video.channel_id = video_data[0]['snippet']['channelId']
                         db_session.commit()
-                db_session.commit()
-            return video_data
+                        already_stored_tag = VideoTag.query.filter(
+                            VideoTag.video_id == video.id
+                        ).all()
+                        if len(already_stored_tag) == 0:
+                            if 'tags' in video_data[0]['snippet']:
+                                tags = video_data[0]['snippet']['tags']
+                                if len(tags) > 0:
+                                    for tag in tags:
+                                        tag_obj = VideoTag(tag_name=tag, video_id=video.id)
+                                        db_session.add(tag_obj)
+                                        db_session.commit()
+                    if 'statistics' in video_data[0]:
+                        stat_obj = Statistic(
+                            video_id=video.id,
+                            comment_count=video_data[0]['statistics']['commentCount'],
+                            dislike_count=video_data[0]['statistics']['dislikeCount'],
+                            favorite_count=video_data[0]['statistics']['favoriteCount'],
+                            like_count=video_data[0]['statistics']['likeCount'],
+                            view_count=video_data[0]['statistics']['viewCount'],
+                        )
+                        db_session.add(stat_obj)
+                        db_session.commit()
+
+        return 'Videos stats are now fetched!'
 
 
 @app.route('/')
@@ -150,13 +178,23 @@ def celery_test():
 
 @app.route('/fetch_videos')
 def fetch_videos():
-    result = scrap_channel_videos.delay()
-    test = result.wait()
-    print(test)
-    # result = scrap_video_data.delay()
-    # test = result.wait()
-    # print(test)
-    return 'Hurray! See the console...'
+    try:
+        result = scrap_channel_videos.delay()
+        msg = result.wait()
+        return 'Your channel videos are being fetched!'
+    except:
+        return 'Please go to the Authorize flow first!' + print_index_table()
+
+
+@app.route('/fetch_video_stats')
+def fetch_video_stats():
+    try:
+        result = scrap_video_data.delay()
+        msg = result.wait()
+        print(msg)
+        return 'You videos data are being fetched!'
+    except:
+        return 'Please go to the Authorize flow first!' + print_index_table()
 
 
 @app.route('/test')
@@ -281,7 +319,7 @@ def oauth2callback():
     flask.session['credentials'] = credentials_to_dict(credentials)
     save_credentials_to_db(credentials)
 
-    return flask.redirect(flask.url_for('test_api_request'))
+    return flask.redirect(flask.url_for('index'))
 
 
 @app.route('/revoke')
@@ -337,21 +375,20 @@ def save_credentials_to_db(credentials):
 
 def print_index_table():
     return ('<table>' +
-            '<tr><td><a href="/authorize">Test the auth flow directly</a></td>' +
+            '<tr><td><b>Step 1. </b><a href="/authorize">Please Authorize with Oauth2.0</a></td>' +
             '<td>Go directly to the authorization flow. If there are stored ' +
             '    credentials, you still might not be prompted to reauthorize ' +
             '    the application.</td></tr>' +
-            '<tr><td><a href="/videos">Channel Videos</a></td>' +
+            '<tr><td><b>Optional. </b><a href="/videos">Channel Videos</a></td>' +
             '<td>See the video list of your channels.</td></tr>' +
-            '<tr><td><a href="/revoke">Revoke current credentials</a></td>' +
+            '<tr><td><b>Step 2. </b><a href="/fetch_videos">Fetch Channel Videos</a></td>' +
+            '<td>To fetch videos from your channel.</td></tr>' +
+            '<tr><td><b>Step 3. </b><a href="/fetch_video_stats">Fetch Video Data</a></td>' +
+            '<td>To fetch data from your channels videos.</td></tr>' +
+            '<tr><td><b>Optional. </b><a href="/revoke">Revoke current credentials</a></td>' +
             '<td>Revoke the access token associated with the current user ' +
             '    session. After revoking credentials, if you go to the test ' +
             '    page, you should see an <code>invalid_grant</code> error.' +
-            '</td></tr>' +
-            '<tr><td><a href="/clear">Clear Flask session credentials</a></td>' +
-            '<td>Clear the access token currently stored in the user session. ' +
-            '    After clearing the token, if you <a href="/test">test the ' +
-            '    API request</a> again, you should go back to the auth flow.' +
             '</td></tr></table>')
 
 

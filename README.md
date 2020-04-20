@@ -21,3 +21,18 @@ Finally on terminal,
     flask run
     
 You should see a server running here, `http://127.0.0.1:5000/`
+
+##### Learning Pointers
+1. Flask
+2. Youtube API3
+3. SQLAlchemy & it's ORM
+4. Celery
+
+
+##### TODO
+1. Refactor the `directory` structure
+2. Test coverage
+3. More robust `database` design
+4. Efficient `database` connection handling
+5. Migration options with `package` like, `Flask-Migrate`
+5. Better error handling

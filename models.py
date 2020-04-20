@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, ARRAY, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Float, String, ARRAY, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.inspection import inspect
@@ -62,13 +62,15 @@ class Video(Base):
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     youtube_id = Column(String(250), unique=True)
-    channel_id = Column(String(250), unique=True)
+    channel_id = Column(String(250))
     title = Column(String(250))
+    last_stat = Column(Float)
 
-    def __init__(self, youtube_id=None, channel_id=None, title=None):
+    def __init__(self, youtube_id=None, channel_id=None, title=None, last_stat=None):
         self.youtube_id = youtube_id
         self.channel_id = channel_id
         self.title = title
+        self.last_stat = last_stat
 
     def __repr__(self):
         return '<Video %r>' % self.youtube_id
@@ -78,42 +80,43 @@ class Video(Base):
         return d
 
 
-class Tag(Base):
-    __tablename__ = 'tags'
+class VideoTag(Base):
+    __tablename__ = 'video_tags'
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    video_id = Column(String(250), primary_key=True)
-    title = Column(String(250))
-    # video = relationship("Video", foreign_keys=Video.id)
+    tag_name = Column(String(250))
+    video_id = Column(String(250))
 
-    def __init__(self, title=None, video_id=None):
-        self.title = title
+    def __init__(self, tag_name=None, video_id=None):
+        self.tag_name = tag_name
         self.video_id = video_id
 
     def __repr__(self):
-        return '<Tag %r>' % (self.title)
+        return '<Tag %r>' % (self.tag_name)
 
     def serialize(self):
         d = Serializer.serialize(self)
         return d
 
-
 class Statistic(Base):
     __tablename__ = 'statistics'
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    commentCount = Column(Integer)
-    dislikeCount = Column(Integer)
-    favoriteCount = Column(Integer)
-    likeCount = Column(Integer)
-    viewCount = Column(Integer)
+    video_id = Column(String(250))
+    comment_count = Column(Integer)
+    dislike_count = Column(Integer)
+    favorite_count = Column(Integer)
+    like_count = Column(Integer)
+    view_count = Column(Integer)
 
-    def __init__(self, commentCount=None, dislikeCount=None, favoriteCount=None, likeCount=None, viewCount=None):
-        self.commentCount = commentCount
-        self.dislikeCount = dislikeCount
-        self.favoriteCount = favoriteCount
-        self.likeCount = likeCount
-        self.viewCount = viewCount
+    def __init__(self, video_id=None, comment_count=None, dislike_count=None, favorite_count=None,
+                 like_count=None, view_count=None):
+        self.video_id = video_id
+        self.comment_count = comment_count
+        self.dislike_count = dislike_count
+        self.favorite_count = favorite_count
+        self.like_count = like_count
+        self.view_count = view_count
 
     def __repr__(self):
         return '<Statistic %r>' % (self.id)

@@ -1,7 +1,19 @@
 import redis
 from celery import Celery
+from celery.schedules import crontab
 
+
+# Celery as a async task managed
 def make_celery(app):
+    # This is written as scheduled task with Celery
+    # Not used cause can't with youtube v3 API
+    app.config['CELERYBEAT_SCHEDULE'] = {
+        # Executes every minute
+        'periodic_task-every-minute': {
+            'task': 'periodic_task',
+            'schedule': crontab(minute="*")
+        }
+    }
     celery = Celery(
         app.import_name,
         backend=app.config['CELERY_RESULT_BACKEND'],

@@ -2,7 +2,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
-engine = create_engine('mysql://root:root@localhost/youtubeScrp2', convert_unicode=True)
+# With Database Connection String
+# Connect MySQL with SQLAlchemy for ORM and other supports
+engine = create_engine('mysql://root:root@localhost/youtubeScrp5', convert_unicode=True)
 db_session = scoped_session(sessionmaker(autocommit=False,
                                          autoflush=False,
                                          bind=engine))

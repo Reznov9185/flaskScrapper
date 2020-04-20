@@ -5,6 +5,7 @@ import flask
 import requests
 import time
 import redis
+import statistics
 
 import google.oauth2.credentials
 import google_auth_oauthlib.flow
@@ -14,6 +15,9 @@ from flask import request
 from database import *
 from models import *
 from tasks import *
+from sqlalchemy import join
+from sqlalchemy.sql import select
+from sqlalchemy import and_
 
 # This variable specifies the name of a file that contains the OAuth 2.0
 # information for this application, including its client_id and client_secret.
@@ -44,9 +48,9 @@ app.config.update(
 celery = make_celery(app)
 
 
-@celery.task()
-def add_together(a, b):
-    return a + b
+#################################
+# Celery Async Background Jobs
+#################################
 
 
 @celery.task()
@@ -151,39 +155,34 @@ def scrap_video_data():
         return 'Videos stats are now fetched!'
 
 
-@app.route('/')
-def index():
-    return print_index_table()
+@celery.task(name="periodic_task")
+def periodic_task():
+    # This is the task which run per minute(as configured in tasks.py)
+    # It will fetch the video statistics
+    # Youtube APIv3 can't do it without Oauth2, which expires so can't be called like this!
+    scrap_video_data.delay()
+    print('Hi! from periodic_task')
 
 
-@app.route('/db_test')
-def db_test():
-    epoch_time = int(time.time())
-    init_db()
-    entry = Video('ABCDEFG' + str(epoch_time), 'ChannelXYZ' + str(epoch_time), 'Title of my video!')
-    db_session.add(entry)
-    db_session.commit()
-    results = entry.serialize()
-
-    return flask.jsonify(results)
+#################################
+# APP Command Routes
+#################################
 
 
-@app.route('/celery_test')
-def celery_test():
-    result = add_together.delay(23, 42)
-    test = result.wait()
-    print(test)
-    return 'Hurray! See the console...'
-
-
+# Algorithm: If you can Authorize other clients via scrap_video_data(through connect_youtube),
+# you can store multiple channels videos and run things with all those
 @app.route('/fetch_videos')
 def fetch_videos():
     try:
         result = scrap_channel_videos.delay()
         msg = result.wait()
-        return 'Your channel videos are being fetched!'
+        msg = 'Your channel videos are being fetched!'
     except:
-        return 'Please go to the Authorize flow first!' + print_index_table()
+        msg = 'Please go to the Authorize flow first!'
+
+    data = {'message': msg,
+            'next': flask.url_for('fetch_video_stats', _external=True)}
+    return flask.jsonify(**data)
 
 
 @app.route('/fetch_video_stats')
@@ -191,33 +190,12 @@ def fetch_video_stats():
     try:
         result = scrap_video_data.delay()
         msg = result.wait()
-        print(msg)
-        return 'You videos data are being fetched!'
+        msg = 'You videos data are being fetched!'
     except:
-        return 'Please go to the Authorize flow first!' + print_index_table()
-
-
-@app.route('/test')
-def test_api_request():
-    if 'credentials' not in flask.session:
-        return flask.redirect('authorize')
-
-    # Load credentials from the session.
-    credentials = google.oauth2.credentials.Credentials(
-        **flask.session['credentials'])
-
-    youtube = googleapiclient.discovery.build(
-        API_SERVICE_NAME, API_VERSION, credentials=credentials)
-
-    channel = youtube.channels().list(mine=True, part='snippet').execute()
-
-    # Save credentials back to session in case access token was refreshed.
-    # ACTION ITEM: In a production app, you likely want to save these
-    #              credentials in a persistent database instead.
-    flask.session['credentials'] = credentials_to_dict(credentials)
-    print(type(flask.session['credentials']['scopes']))
-
-    return flask.jsonify(**flask.session['credentials'])
+        msg = 'Please go to the Authorize flow first!'
+    data = {'message': msg,
+            'next': flask.url_for('videos_performances', _external=True)}
+    return flask.jsonify(**data)
 
 
 @app.route('/videos')
@@ -241,7 +219,6 @@ def channel_videos():
     # For a single channel now...
     uploads_playlist_id = \
         results['items'][0]['contentDetails']['relatedPlaylists']['uploads']
-    print(type(uploads_playlist_id))
     results = youtube.playlistItems() \
         .list(playlistId=uploads_playlist_id, part='contentDetails',
               pageToken=request.args.get('pageToken')) \
@@ -272,6 +249,73 @@ def video_stats():
 
     return flask.jsonify(**results)
 
+
+#################################
+# API Routes
+#################################
+
+
+@app.route('/api/v1/videos_performances')
+def videos_performances():
+    #############################
+    # Expected: Video performance (first hour views divided by channels all videos first hour views median)
+    # Issue: first hour views is from youtube report api(not API-V3), which has some other issues as well
+    # Check: https://developers.google.com/youtube/reporting/v1/reports
+    # Implement: How each video is doing compared to first entries(earliest stats on this platform)!
+    #############################
+
+    records = db_session.query(Video).join(Statistic, Video.id == Statistic.video_id).all()
+    report = {}
+    views_list = []
+    for record in records:
+        # Beginning Views
+        first_views = record.statistics.order_by(Statistic.id).first()
+        # Recent Views
+        last_views = record.statistics.order_by(-Statistic.id).first()
+        # New Views
+        diff_views = last_views.view_count - first_views.view_count
+        views_list.append(diff_views)
+        report[str(record.title)] = {'current_views': str(last_views.view_count),
+                                     'prev_views': str(first_views.view_count),
+                                     'diff': str(diff_views)}
+        # Updating last performance to the Video Model Object
+        record.last_stat = float(diff_views)
+        db_session.commit()
+
+    return flask.jsonify(**report)
+
+
+@app.route('/api/v1/videos')
+def videos():
+    report = {'items': []}
+    # For sort 'by_performances'
+    if request.args.get('sort') is not None:
+        if request.args.get('sort') == 'by_performances':
+            data = Video.query.order_by(Video.last_stat.desc()).all()
+        else:
+            data = Video.query.all()
+    # For filter 'by_tags'
+    elif request.args.get('filter') is not None:
+        # Leaving the untagged ones behind
+        # Joined with filter params
+        data = db_session.query(Video) \
+            .join(VideoTag,
+                  and_(Video.id == VideoTag.video_id,
+                       VideoTag.tag_name == request.args.get('filter'))) \
+            .all()
+    else:
+        data = Video.query.all()
+    if data is not None:
+        for item in data:
+            report['items'].append(
+                item.as_dict()
+            )
+    return flask.jsonify(**report)
+
+
+#################################
+# Index and Auth + Test Routes
+#################################
 
 @app.route('/authorize')
 def authorize():
@@ -319,7 +363,7 @@ def oauth2callback():
     flask.session['credentials'] = credentials_to_dict(credentials)
     save_credentials_to_db(credentials)
 
-    return flask.redirect(flask.url_for('index'))
+    return flask.redirect(flask.url_for('fetch_videos'))
 
 
 @app.route('/revoke')
@@ -350,6 +394,28 @@ def clear_credentials():
             print_index_table())
 
 
+@app.route('/test')
+def test_api_request():
+    if 'credentials' not in flask.session:
+        return flask.redirect('authorize')
+
+    # Load credentials from the session.
+    credentials = google.oauth2.credentials.Credentials(
+        **flask.session['credentials'])
+
+    youtube = googleapiclient.discovery.build(
+        API_SERVICE_NAME, API_VERSION, credentials=credentials)
+
+    channel = youtube.channels().list(mine=True, part='snippet').execute()
+
+    # Save credentials back to session in case access token was refreshed.
+    # ACTION ITEM: In a production app, you likely want to save these
+    #              credentials in a persistent database instead.
+    flask.session['credentials'] = credentials_to_dict(credentials)
+
+    return flask.jsonify(**flask.session['credentials'])
+
+
 def credentials_to_dict(credentials):
     return {'token': credentials.token,
             'refresh_token': credentials.refresh_token,
@@ -374,7 +440,9 @@ def save_credentials_to_db(credentials):
 
 
 def print_index_table():
-    return ('<table>' +
+    return ('<h2 style="text-align: center; color: grey">YouTube API-V3 Scrapper</h2>' +
+            '<h3>APP: </h3>' +
+            '<table>' +
             '<tr><td><b>Step 1. </b><a href="/authorize">Please Authorize with Oauth2.0</a></td>' +
             '<td>Go directly to the authorization flow. If there are stored ' +
             '    credentials, you still might not be prompted to reauthorize ' +
@@ -389,7 +457,18 @@ def print_index_table():
             '<td>Revoke the access token associated with the current user ' +
             '    session. After revoking credentials, if you go to the test ' +
             '    page, you should see an <code>invalid_grant</code> error.' +
-            '</td></tr></table>')
+            '</td></tr></table>' +
+            '<br/><br/>' +
+            '<h3>APIs: </h3>' +
+            '<table>' +
+            '<tr><td><b>1. </b><a href="/api/v1/videos_performances">Videos Performances</a></td>' +
+            '<td>To see how your channels videos are doing!.</td></tr>' +
+            '<tr><td><b>2. </b><a href="/api/v1/videos?sort=by_performances">Sort Videos</a></td>' +
+            '<td>(By Performances) - For now only with Most (last_stats).</td></tr>' +
+            '<tr><td><b>3. </b><a href="/api/v1/videos?filter=test">Filter Videos</a></td>' +
+            '<td>(By Tags) - Changed the Filter Parameter on the URI and check!</td></tr>' +
+            '</table>'
+            )
 
 
 if __name__ == '__main__':
@@ -406,3 +485,8 @@ if __name__ == '__main__':
 @app.teardown_appcontext
 def shutdown_session(exception=None):
     db_session.remove()
+
+
+@app.route('/')
+def index():
+    return print_index_table()

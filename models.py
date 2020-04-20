@@ -1,9 +1,11 @@
 import datetime
-from sqlalchemy import Column, Integer, Float, String, ARRAY, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, Float, String, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.inspection import inspect
 
+
+# For Serializing Model objects
 class Serializer(object):
 
     def serialize(self):
@@ -13,6 +15,8 @@ class Serializer(object):
     def serialize_list(l):
         return [m.serialize() for m in l]
 
+
+# Redundant Left Behind for tests
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
@@ -24,12 +28,14 @@ class User(Base):
         self.email = email
 
     def __repr__(self):
-        return '<User %r>' % (self.name)
+        return '<User %r>' % (self.id)
 
     def serialize(self):
         d = Serializer.serialize(self)
         return d
 
+
+# Model to store OAuth credentials, to use in the async tasks
 class Cred(Base):
     __tablename__ = 'creds'
     id = Column(Integer, primary_key=True)
@@ -57,6 +63,8 @@ class Cred(Base):
         d = Serializer.serialize(self)
         return d
 
+
+# Model to store basic Videos identities from youtube, to use in the async tasks
 class Video(Base):
     __tablename__ = 'videos'
     id = Column(Integer, primary_key=True)
@@ -64,7 +72,10 @@ class Video(Base):
     youtube_id = Column(String(250), unique=True)
     channel_id = Column(String(250))
     title = Column(String(250))
-    last_stat = Column(Float)
+    last_stat = Column(Float)  # Left as a float for future performance metrics(Now storing integers!)
+    # Relations with Other model through ForeignKeys
+    statistics = relationship('Statistic', lazy='dynamic')
+    video_tags = relationship('VideoTag', lazy='dynamic')
 
     def __init__(self, youtube_id=None, channel_id=None, title=None, last_stat=None):
         self.youtube_id = youtube_id
@@ -73,36 +84,46 @@ class Video(Base):
         self.last_stat = last_stat
 
     def __repr__(self):
-        return '<Video %r>' % self.youtube_id
+        return '<Video %r>' % self.id
 
     def serialize(self):
         d = Serializer.serialize(self)
         return d
 
+    def as_dict(self):
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}
 
+
+# Model to store Video Tags from Youtube
 class VideoTag(Base):
     __tablename__ = 'video_tags'
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     tag_name = Column(String(250))
-    video_id = Column(String(250))
+    video_id = Column(Integer,
+                      ForeignKey('videos.id'),
+                      nullable=False)
 
     def __init__(self, tag_name=None, video_id=None):
         self.tag_name = tag_name
         self.video_id = video_id
 
     def __repr__(self):
-        return '<Tag %r>' % (self.tag_name)
+        return '<Tag %r>' % (self.id)
 
     def serialize(self):
         d = Serializer.serialize(self)
         return d
 
+
+# Model to store Video statistics from youtube
 class Statistic(Base):
     __tablename__ = 'statistics'
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    video_id = Column(String(250))
+    video_id = Column(Integer,
+                      ForeignKey('videos.id'),
+                      nullable=False)
     comment_count = Column(Integer)
     dislike_count = Column(Integer)
     favorite_count = Column(Integer)

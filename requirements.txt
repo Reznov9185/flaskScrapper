@@ -130,7 +130,7 @@ srp-ext==1.0.7.1
 text-unidecode==1.2
 tzlocal==1.5.1
 uritemplate==3.0.1
-urllib3==1.24.2
+urllib3==1.26.5
 vine==1.3.0
 virtualenv==16.4.3
 warrant-ext==0.6.1.1
